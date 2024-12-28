@@ -1,10 +1,11 @@
 // Modules to control application life and create native browser window
-const { app, BrowserWindow, Menu, ipcMain, dialog } = require('electron');
-const fontManager = require('./font-manager');
-const winState = require('./win-state');
-
+const {
+  app, BrowserWindow, Menu, ipcMain, dialog, nativeTheme,
+} = require('electron');
 const url = require('url');
 const path = require('path');
+const fontManager = require('./font-manager');
+const winState = require('./win-state');
 
 // disable GPU for some white screen issues
 // app.disableHardwareAcceleration();
@@ -24,10 +25,10 @@ process.on('uncaughtException', (err, origin) => {
 
   dialog.showMessageBoxSync(mainWindow, {
     type: 'error',
-    title: 'Whoops! Uncaught Exception', 
+    title: 'Whoops! Uncaught Exception',
     message: err.stack,
     detail: '\nDon\'t worry, I will fix it! 😎😎\n\n'
-            + 'Submit issue to: \nhttps://github.com/qishibo/AnotherRedisDesktopManager/'
+            + 'Submit issue to: \nhttps://github.com/qishibo/AnotherRedisDesktopManager/',
   });
 
   process.exit();
@@ -69,12 +70,15 @@ function createWindow() {
     // mainWindow.loadFile('index.html');
     mainWindow.loadURL(url.format({
       protocol: 'file',
-      slashes: true,
       pathname: path.join(__dirname, 'index.html'),
-      query: {version: app.getVersion()},
+      query: {version: app.getVersion(), dark: nativeTheme.shouldUseDarkColors},
     }));
   } else {
-    mainWindow.loadURL(`http://localhost:9988/?version=${app.getVersion()}`);
+    mainWindow.loadURL(url.format({
+      protocol: 'http',
+      host: 'localhost:9988',
+      query: {version: app.getVersion(), dark: nativeTheme.shouldUseDarkColors},
+    }));
   }
 
   // Open the DevTools.
@@ -121,19 +125,43 @@ app.on('activate', () => {
 });
 
 // hide window
-ipcMain.on('hideWindow',function() {
+ipcMain.on('hideWindow', () => {
   mainWindow && mainWindow.hide();
 });
 // minimize window
-ipcMain.on('minimizeWindow',function() {
+ipcMain.on('minimizeWindow', () => {
   mainWindow && mainWindow.minimize();
 });
 // toggle maximize
-ipcMain.on('toggleMaximize',function() {
+ipcMain.on('toggleMaximize', () => {
   if (mainWindow) {
-    mainWindow.isMaximized() ? mainWindow.restore() : mainWindow.maximize();
+    // restore failed on MacOS, use unmaximize instead
+    mainWindow.isMaximized() ? mainWindow.unmaximize() : mainWindow.maximize();
   }
 });
+
+ipcMain.handle('getMainArgs', (event, arg) => ({
+  argv: process.argv,
+  version: app.getVersion(),
+}));
+
+ipcMain.handle('changeTheme', (event, theme) => {
+  nativeTheme.themeSource = theme;
+  return nativeTheme.shouldUseDarkColors;
+});
+
+// OS theme changed
+nativeTheme.on('updated', () => {
+  // delay send to prevent webcontent stuck
+  setTimeout(() => {
+    mainWindow.webContents.send('os-theme-updated', {
+      shouldUseDarkColors: nativeTheme.shouldUseDarkColors,
+      themeSource: nativeTheme.themeSource
+    });
+  }, 50);
+});
+
+ipcMain.handle('getTempPath', (event, arg) => app.getPath('temp'));
 
 // for mac copy paset shortcut
 if (process.platform === 'darwin') {
@@ -150,8 +178,8 @@ if (process.platform === 'darwin') {
         { role: 'hideothers' },
         { role: 'unhide' },
         { type: 'separator' },
-        { role: 'quit' }
-      ]
+        { role: 'quit' },
+      ],
     },
     { role: 'editMenu' },
     // { role: 'viewMenu' },
@@ -161,8 +189,8 @@ if (process.platform === 'darwin') {
         ...(
           (APP_ENV === 'production') ? [] : [{ role: 'toggledevtools' }]
         ),
-        { role: 'togglefullscreen' }
-      ]
+        { role: 'togglefullscreen' },
+      ],
     },
     // { role: 'windowMenu' },
     {
@@ -174,7 +202,7 @@ if (process.platform === 'darwin') {
         { role: 'front' },
         { type: 'separator' },
         // { role: 'window' }
-      ]
+      ],
     },
     {
       role: 'help',
@@ -182,12 +210,12 @@ if (process.platform === 'darwin') {
         {
           label: 'Learn More',
           click: async () => {
-            const { shell } = require('electron')
-            await shell.openExternal('https://github.com/qishibo/AnotherRedisDesktopManager')
-          }
-        }
-      ]
-    }
+            const { shell } = require('electron');
+            await shell.openExternal('https://github.com/qishibo/AnotherRedisDesktopManager');
+          },
+        },
+      ],
+    },
   ];
 
   menu = Menu.buildFromTemplate(template);
